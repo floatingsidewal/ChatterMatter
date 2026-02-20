@@ -1,0 +1,95 @@
+{
+  "name": "chattermatter-vscode",
+  "displayName": "ChatterMatter",
+  "description": "Inline comments and AI review for Markdown documents",
+  "version": "0.1.0",
+  "publisher": "chattermatter",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:markdown"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "chattermatter.addComment",
+        "title": "ChatterMatter: Add Comment"
+      },
+      {
+        "command": "chattermatter.resolveComment",
+        "title": "ChatterMatter: Resolve Comment"
+      },
+      {
+        "command": "chattermatter.listComments",
+        "title": "ChatterMatter: List Comments"
+      },
+      {
+        "command": "chattermatter.stripComments",
+        "title": "ChatterMatter: Strip All Comments"
+      },
+      {
+        "command": "chattermatter.toggleOverlay",
+        "title": "ChatterMatter: Toggle Comment Overlay"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "chattermatter.addComment",
+          "when": "editorLangId == markdown && editorHasSelection",
+          "group": "chattermatter"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "ChatterMatter",
+      "properties": {
+        "chattermatter.author": {
+          "type": "string",
+          "default": "",
+          "description": "Default author name for new comments"
+        },
+        "chattermatter.mode": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "sidecar"
+          ],
+          "default": "inline",
+          "description": "Where to write new comments: inline in the .md file or in a .md.chatter sidecar"
+        },
+        "chattermatter.showResolved": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show resolved comments in the overlay"
+        },
+        "chattermatter.highlightColor": {
+          "type": "string",
+          "default": "rgba(255, 212, 0, 0.15)",
+          "description": "Background color for commented text highlights"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "npm run build -- --watch",
+    "lint": "tsc --noEmit",
+    "package": "npm run build && npx @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "chattermatter": "file:.."
+  }
+}
