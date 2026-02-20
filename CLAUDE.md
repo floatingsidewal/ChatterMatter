@@ -59,11 +59,15 @@ A ChatterMatter block looks like:
 Key design decisions:
 - **Fenced code blocks** for embedding (visible in dumb renderers, invisible in smart ones)
 - **Loss tolerance** — documents remain valid Markdown regardless of client support
-- **Anchor diversity** — text quotes, headings, block index, with fallback ordering
-- **Threading** via parent ID references
-- **Typed comments** — comment, question, suggestion, ai_feedback, reaction
+- **Anchor diversity** — text quotes, headings, block index, with composite fallbacks
+- **Threading** via `parent_id` references
+- **Typed comments** — `comment`, `question`, `suggestion`, `ai_feedback`, `reaction`
+- **Two placement modes** — inline (blocks in the `.md` file) and sidecar (blocks in a `.md.chatter` companion file)
+- **Suggestions with diffs** — `suggestion` type includes `original`/`replacement` fields for machine-actionable changes
+- **AI-native** — `ai_feedback` type with model/confidence/category metadata
 
-See `docs/spec/spec-review.md` for identified issues that must be resolved before implementation.
+See `docs/spec/chattermatter-spec.md` for the full format specification.
+See `docs/spec/spec-review.md` for the review of the prior draft and the issues it identified (all resolved in the current spec).
 
 ## Git Commits
 
@@ -73,11 +77,13 @@ See `docs/spec/spec-review.md` for identified issues that must be resolved befor
 
 ## Development Priorities
 
-Before writing code, these spec issues must be resolved (see `docs/spec/spec-review.md`):
+The spec review issues (see `docs/spec/spec-review.md`) have been resolved in the current spec (`docs/spec/chattermatter-spec.md`):
 
-1. Resolve the `type` enum — remove or precisely define `thread`, `suggestion`, and `resolution`
-2. Define anchor failure behavior
-3. Add error handling rules (duplicate IDs, circular threads, malformed JSON)
-4. Constrain reaction semantics
-5. Specify JSON as RFC 8259
-6. State round-trip preservation requirements
+1. **Type enum resolved** — removed `thread` and `resolution`; defined `suggestion` with diff semantics
+2. **Anchor failure defined** — orphaned blocks are preserved and displayed (§5.5)
+3. **Error handling added** — duplicate IDs, circular threads, malformed JSON all specified (§12)
+4. **Reactions constrained** — must be single emoji or short predefined string (§4.6)
+5. **JSON specified as RFC 8259** — no JSON5 features permitted (§3.3)
+6. **Round-trip preservation required** — unknown fields must be preserved on read/write (§9)
+
+Next steps: implement the TypeScript reference parser and CLI (see `align/product/roadmap.md`).
