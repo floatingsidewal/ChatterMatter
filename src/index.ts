@@ -72,7 +72,9 @@ export type {
   SessionConfig,
   SessionInfo,
   PeerInfo,
+  PeerRole,
   SessionEvent,
   SessionEventHandler,
 } from "./p2p/index.js";
 export type { PresenceState, PeerPresence } from "./p2p/index.js";
+export type { DocumentContent } from "./p2p/index.js";

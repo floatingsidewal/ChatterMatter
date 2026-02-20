@@ -25,6 +25,7 @@ import { encodeMessage, decodeMessage } from "./protocol.js";
 import type {
   SessionInfo,
   PeerInfo,
+  PeerRole,
   Message,
   SessionEvent,
   SessionEventHandler,
@@ -34,6 +35,11 @@ import type { Block, Anchor, BlockType } from "../types.js";
 const RECONNECT_DELAYS = [2000, 4000, 8000, 16000];
 const PING_INTERVAL = 30_000;
 
+export interface DocumentContent {
+  markdown: string;
+  path: string;
+}
+
 export class ClientSession {
   readonly doc: Y.Doc;
   readonly presence: PresenceManager;
@@ -41,8 +47,10 @@ export class ClientSession {
   private ws: WebSocket | null = null;
   private peerId: string;
   private peerName: string;
+  private peerRole: PeerRole;
   private url: string;
   private sessionInfo: SessionInfo | null = null;
+  private documentContent: DocumentContent | null = null;
   private eventHandlers: SessionEventHandler[] = [];
   private cleanupObserver: (() => void) | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -54,12 +62,21 @@ export class ClientSession {
     url: string;
     peerId: string;
     name: string;
+    role?: PeerRole;
   }) {
     this.url = options.url;
     this.peerId = options.peerId;
     this.peerName = options.name;
+    this.peerRole = options.role ?? "reviewer";
     this.doc = createEmptyDoc();
     this.presence = new PresenceManager(this.doc, options.name);
+  }
+
+  /**
+   * Get the current role of this client.
+   */
+  getRole(): PeerRole {
+    return this.peerRole;
   }
 
   // -------------------------------------------------------------------------
@@ -83,7 +100,7 @@ export class ClientSession {
           type: "auth",
           peerId: this.peerId,
           name: this.peerName,
-          role: "reviewer",
+          role: this.peerRole === "master" ? "reviewer" : this.peerRole,
         });
 
         // Start ping keepalive
@@ -193,6 +210,13 @@ export class ClientSession {
   }
 
   /**
+   * Get the document content received from master.
+   */
+  getDocument(): DocumentContent | null {
+    return this.documentContent;
+  }
+
+  /**
    * Materialize current state to a string (for writing to a local .chatter file).
    */
   materialize(): string {
@@ -212,6 +236,13 @@ export class ClientSession {
         this.authenticated = true;
         this.sessionInfo = msg.sessionInfo;
         if (authResolve) authResolve(msg.sessionInfo);
+        break;
+
+      case "doc_content":
+        this.documentContent = {
+          markdown: msg.markdown,
+          path: msg.path,
+        };
         break;
 
       case "sync":
@@ -252,6 +283,18 @@ export class ClientSession {
         } else if (msg.action === "end") {
           this.emit({ type: "session_ended" });
           this.disconnect();
+        }
+        break;
+
+      case "role_change":
+        // Update our own role if this message is for us
+        if (msg.peerId === this.peerId) {
+          const oldRole = this.peerRole;
+          this.peerRole = msg.newRole;
+          this.emit({ type: "role_changed", peerId: msg.peerId, oldRole, newRole: msg.newRole });
+        } else {
+          // Emit event for other peer role changes (we don't track their roles locally)
+          this.emit({ type: "role_changed", peerId: msg.peerId, oldRole: "viewer", newRole: msg.newRole });
         }
         break;
 

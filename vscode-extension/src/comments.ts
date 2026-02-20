@@ -3,6 +3,7 @@ import { parse, addComment, resolveBlock, getCleanContent, listBlocks } from "ch
 import { appendBlock, serializeBlock } from "chattermatter";
 import type { Block } from "chattermatter";
 import { readFile, writeFile } from "node:fs/promises";
+import type { SessionManager } from "./p2p/sessionManager.js";
 
 /**
  * Integrates with VS Code's native Comment API to provide
@@ -11,6 +12,7 @@ import { readFile, writeFile } from "node:fs/promises";
 export class ChatterMatterCommentController {
   private controller: vscode.CommentController;
   private threads: Map<string, vscode.CommentThread> = new Map();
+  private sessionManager: SessionManager | null = null;
 
   constructor(private context: vscode.ExtensionContext) {
     this.controller = vscode.comments.createCommentController(
@@ -26,6 +28,13 @@ export class ChatterMatterCommentController {
     };
 
     context.subscriptions.push(this.controller);
+  }
+
+  /**
+   * Set the session manager for P2P operations.
+   */
+  setSessionManager(sessionManager: SessionManager): void {
+    this.sessionManager = sessionManager;
   }
 
   /**
@@ -65,6 +74,14 @@ export class ChatterMatterCommentController {
       anchor: { type: "text", exact: selectedText },
     });
 
+    // If connected to a P2P session as a client, use sessionManager
+    if (this.sessionManager?.isConnected() && !this.sessionManager.isHosting()) {
+      this.sessionManager.addBlock(block);
+      vscode.window.showInformationMessage(`Comment added [${block.id.slice(0, 8)}...]`);
+      return;
+    }
+
+    // Otherwise, write to file as usual
     if (mode === "sidecar") {
       const sidecarPath = editor.document.uri.fsPath + ".chatter";
       let sidecarContent = "";

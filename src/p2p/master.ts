@@ -22,14 +22,16 @@ import * as awarenessProtocol from "y-protocols/awareness.js";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { ulid } from "ulid";
-import { createDoc, getBlocksMap, getBlocks, materialize, observeBlocks } from "./sync.js";
+import { createDoc, createEmptyDoc, getBlocksMap, getBlocks, materialize, observeBlocks } from "./sync.js";
 import { MasterValidator } from "./validation.js";
 import { PresenceManager } from "./presence.js";
 import { encodeMessage, decodeMessage } from "./protocol.js";
+import { SessionStorage } from "./storage.js";
 import type {
   SessionConfig,
   SessionInfo,
   PeerInfo,
+  PeerRole,
   Message,
   SessionEvent,
   SessionEventHandler,
@@ -46,6 +48,13 @@ interface ConnectedPeer {
   info: PeerInfo;
 }
 
+interface DocumentContent {
+  markdown: string;
+  path: string;
+}
+
+const DEFAULT_AUTO_SAVE_INTERVAL = 30_000; // 30 seconds
+
 export class MasterSession {
   readonly sessionId: string;
   readonly doc: Y.Doc;
@@ -59,19 +68,55 @@ export class MasterSession {
   private eventHandlers: SessionEventHandler[] = [];
   private cleanupObserver: (() => void) | null = null;
   private createdAt: string;
+  private storage: SessionStorage;
+  private autoSaveTimer: ReturnType<typeof setInterval> | null = null;
+  private autoSaveInterval: number;
+  private documentContent: DocumentContent | null = null;
 
   constructor(private config: SessionConfig) {
     this.sessionId = config.sessionId || ulid();
     this.documentPath = config.documentPath;
     this.sidecar = config.sidecar ?? true;
     this.createdAt = new Date().toISOString();
+    this.autoSaveInterval = config.autoSaveInterval ?? DEFAULT_AUTO_SAVE_INTERVAL;
 
-    // Load existing blocks from the document or sidecar
-    const content = this.loadContent();
-    this.doc = createDoc(content);
+    // Initialize storage
+    this.storage = new SessionStorage(config.documentPath);
+
+    // Load from initial state if resuming, otherwise from file
+    if (config.initialState) {
+      this.doc = createEmptyDoc();
+      Y.applyUpdate(this.doc, config.initialState);
+    } else {
+      const content = this.loadContent();
+      this.doc = createDoc(content);
+    }
+
+    // Load the markdown document content for sharing with peers
+    this.loadDocumentContent();
 
     this.validator = new MasterValidator();
     this.presence = new PresenceManager(this.doc, config.masterName);
+  }
+
+  /**
+   * Load the markdown document content for sharing with peers.
+   */
+  private loadDocumentContent(): void {
+    if (existsSync(this.documentPath)) {
+      const markdown = readFileSync(this.documentPath, "utf-8");
+      this.documentContent = {
+        markdown,
+        path: this.documentPath,
+      };
+    }
+  }
+
+  /**
+   * Get the document content for sharing.
+   */
+  getDocumentContent(): DocumentContent | null {
+    return this.documentContent;
   }
 
   // -------------------------------------------------------------------------
@@ -105,6 +150,13 @@ export class MasterSession {
           }
         }
       });
+
+      // Start auto-save timer
+      if (this.autoSaveInterval > 0) {
+        this.autoSaveTimer = setInterval(() => {
+          this.saveSession();
+        }, this.autoSaveInterval);
+      }
     });
   }
 
@@ -112,6 +164,12 @@ export class MasterSession {
    * Stop the session, disconnect all peers, and materialize final state.
    */
   async stop(): Promise<void> {
+    // Clear auto-save timer
+    if (this.autoSaveTimer) {
+      clearInterval(this.autoSaveTimer);
+      this.autoSaveTimer = null;
+    }
+
     // Notify all peers
     const endMsg: Message = { type: "session", action: "end", peerId: "master" };
     this.broadcast(endMsg);
@@ -130,8 +188,11 @@ export class MasterSession {
       this.wss = null;
     }
 
-    // Materialize final state
+    // Materialize final state to file
     this.save();
+
+    // Save session state for potential resume
+    this.saveSession();
 
     // Cleanup
     if (this.cleanupObserver) {
@@ -165,6 +226,47 @@ export class MasterSession {
     return getBlocks(this.doc);
   }
 
+  /**
+   * Find a peer by display name.
+   */
+  findPeerByName(name: string): PeerInfo | undefined {
+    for (const peer of this.peers.values()) {
+      if (peer.info.name.toLowerCase() === name.toLowerCase()) {
+        return peer.info;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Change a peer's role. Only masters can change roles.
+   * Returns true if the role was changed, false if peer not found.
+   */
+  changePeerRole(peerId: string, newRole: PeerRole): boolean {
+    const peer = this.peers.get(peerId);
+    if (!peer) return false;
+
+    const oldRole = peer.info.role;
+    if (oldRole === newRole) return true; // No change needed
+
+    // Update the peer's role
+    peer.info.role = newRole;
+
+    // Broadcast role change to all peers
+    const roleChangeMsg: Message = {
+      type: "role_change",
+      peerId,
+      newRole,
+      changedBy: this.config.masterName,
+    };
+    this.broadcast(roleChangeMsg);
+
+    // Emit event
+    this.emit({ type: "role_changed", peerId, oldRole, newRole });
+
+    return true;
+  }
+
   // -------------------------------------------------------------------------
   // File I/O
   // -------------------------------------------------------------------------
@@ -190,6 +292,32 @@ export class MasterSession {
       // For P2P Phase 1, sidecar is the primary mode.
       writeFileSync(this.documentPath + ".chatter", content, "utf-8");
     }
+  }
+
+  /**
+   * Save session state for potential resume.
+   */
+  saveSession(): void {
+    this.storage.saveSession(
+      this.sessionId,
+      this.doc,
+      {
+        sessionId: this.sessionId,
+        masterName: this.config.masterName,
+        documentPath: this.documentPath,
+        port: this.config.port,
+        createdAt: this.createdAt,
+        sidecar: this.sidecar,
+      },
+      this.getPeers(),
+    );
+  }
+
+  /**
+   * Get the session storage instance.
+   */
+  getStorage(): SessionStorage {
+    return this.storage;
   }
 
   // -------------------------------------------------------------------------
@@ -261,6 +389,15 @@ export class MasterSession {
       sessionInfo: this.getInfo(),
     });
 
+    // Send document content for peers to view
+    if (this.documentContent) {
+      this.send(ws, {
+        type: "doc_content",
+        markdown: this.documentContent.markdown,
+        path: this.documentContent.path,
+      });
+    }
+
     // Send full state sync
     const stateVector = Y.encodeStateVector(this.doc);
     const update = Y.encodeStateAsUpdate(this.doc);
@@ -291,6 +428,10 @@ export class MasterSession {
     const beforeIds = new Set<string>();
     blocksMap.forEach((_v, k) => beforeIds.add(k));
 
+    // Look up peer role
+    const peer = this.peers.get(peerId);
+    const peerRole: PeerRole = peer?.info.role ?? "viewer";
+
     // Apply the update to a temporary doc first for validation
     const tempDoc = new Y.Doc();
     Y.applyUpdate(tempDoc, Y.encodeStateAsUpdate(this.doc));
@@ -302,6 +443,7 @@ export class MasterSession {
       beforeIds,
       tempBlocksMap,
       peerId,
+      peerRole,
     );
 
     tempDoc.destroy();

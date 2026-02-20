@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import { MasterValidator } from "../src/p2p/validation.js";
 import { createDoc, setBlock } from "../src/p2p/sync.js";
 import type { Block } from "../src/types.js";
+import type { PeerRole } from "../src/p2p/types.js";
 
 const SAMPLE_MARKDOWN = `\`\`\`chattermatter
 {
@@ -217,6 +218,80 @@ describe("MasterValidator", () => {
       const block3: Block = { id: "r3", type: "comment", content: "z", status: "open" };
       expect(validator.validateAdd(doc, block3, "peer1").valid).toBe(true);
 
+      doc.destroy();
+    });
+  });
+
+  describe("role enforcement", () => {
+    it("canWrite returns true for master and reviewer", () => {
+      const validator = new MasterValidator();
+      expect(validator.canWrite("master")).toBe(true);
+      expect(validator.canWrite("reviewer")).toBe(true);
+    });
+
+    it("canWrite returns false for viewer", () => {
+      const validator = new MasterValidator();
+      expect(validator.canWrite("viewer")).toBe(false);
+    });
+
+    it("validateAdd rejects viewers", () => {
+      const doc = createDoc(SAMPLE_MARKDOWN);
+      const validator = new MasterValidator();
+
+      const block: Block = {
+        id: "viewer-block",
+        type: "comment",
+        content: "Viewer attempt",
+        status: "open",
+      };
+
+      const result = validator.validateAdd(doc, block, "viewer-peer", "viewer");
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain("Viewers cannot add");
+      doc.destroy();
+    });
+
+    it("validateUpdate rejects viewers", () => {
+      const doc = createDoc(SAMPLE_MARKDOWN);
+      const validator = new MasterValidator();
+
+      const block: Block = {
+        id: "existing1",
+        type: "comment",
+        content: "Viewer update",
+        status: "resolved",
+      };
+
+      const result = validator.validateUpdate(doc, block, "viewer-peer", "viewer");
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain("Viewers cannot update");
+      doc.destroy();
+    });
+
+    it("validateDelete rejects viewers", () => {
+      const doc = createDoc(SAMPLE_MARKDOWN);
+      const validator = new MasterValidator();
+
+      const result = validator.validateDelete(doc, "existing1", "viewer-peer", "viewer");
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain("Viewers cannot delete");
+      doc.destroy();
+    });
+
+    it("defaults to reviewer role when not specified", () => {
+      const doc = createDoc(SAMPLE_MARKDOWN);
+      const validator = new MasterValidator();
+
+      const block: Block = {
+        id: "default-role-block",
+        type: "comment",
+        content: "Should work",
+        status: "open",
+      };
+
+      // Call without role parameter - should default to reviewer
+      const result = validator.validateAdd(doc, block, "peer1");
+      expect(result.valid).toBe(true);
       doc.destroy();
     });
   });

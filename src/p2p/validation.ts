@@ -9,7 +9,7 @@ import * as Y from "yjs";
 import { validateBlock } from "../validator.js";
 import type { Block } from "../types.js";
 import { getBlocksMap } from "./sync.js";
-import type { ValidationResult } from "./types.js";
+import type { ValidationResult, PeerRole } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Rate limiting
@@ -36,9 +36,22 @@ export class MasterValidator {
   }
 
   /**
+   * Check if a role has write permissions.
+   * Viewers cannot write; masters and reviewers can.
+   */
+  canWrite(role: PeerRole): boolean {
+    return role !== "viewer";
+  }
+
+  /**
    * Validate a proposed block addition against the current doc state.
    */
-  validateAdd(doc: Y.Doc, block: Block, peerId: string): ValidationResult {
+  validateAdd(doc: Y.Doc, block: Block, peerId: string, role: PeerRole = "reviewer"): ValidationResult {
+    // Role check
+    if (!this.canWrite(role)) {
+      return { valid: false, reason: "Viewers cannot add blocks" };
+    }
+
     // Rate limiting
     const rateLimitResult = this.checkRateLimit(peerId);
     if (!rateLimitResult.valid) return rateLimitResult;
@@ -70,7 +83,12 @@ export class MasterValidator {
   /**
    * Validate a proposed block update (e.g. status change).
    */
-  validateUpdate(doc: Y.Doc, block: Block, peerId: string): ValidationResult {
+  validateUpdate(doc: Y.Doc, block: Block, peerId: string, role: PeerRole = "reviewer"): ValidationResult {
+    // Role check
+    if (!this.canWrite(role)) {
+      return { valid: false, reason: "Viewers cannot update blocks" };
+    }
+
     const rateLimitResult = this.checkRateLimit(peerId);
     if (!rateLimitResult.valid) return rateLimitResult;
 
@@ -91,7 +109,12 @@ export class MasterValidator {
   /**
    * Validate a proposed block deletion.
    */
-  validateDelete(doc: Y.Doc, blockId: string, peerId: string): ValidationResult {
+  validateDelete(doc: Y.Doc, blockId: string, peerId: string, role: PeerRole = "reviewer"): ValidationResult {
+    // Role check
+    if (!this.canWrite(role)) {
+      return { valid: false, reason: "Viewers cannot delete blocks" };
+    }
+
     const rateLimitResult = this.checkRateLimit(peerId);
     if (!rateLimitResult.valid) return rateLimitResult;
 
@@ -112,7 +135,33 @@ export class MasterValidator {
     beforeIds: Set<string>,
     afterMap: Y.Map<Record<string, unknown>>,
     peerId: string,
+    role: PeerRole = "reviewer",
   ): { valid: boolean; rejections: Array<{ blockId: string; reason: string }> } {
+    // Early role check for any changes
+    if (!this.canWrite(role)) {
+      const afterIds = new Set<string>();
+      afterMap.forEach((_v, k) => afterIds.add(k));
+
+      // Check if there are any actual changes
+      const hasNewBlocks = [...afterIds].some(id => !beforeIds.has(id));
+      const hasRemovedBlocks = [...beforeIds].some(id => !afterIds.has(id));
+
+      if (hasNewBlocks || hasRemovedBlocks) {
+        const rejections: Array<{ blockId: string; reason: string }> = [];
+        for (const id of afterIds) {
+          if (!beforeIds.has(id)) {
+            rejections.push({ blockId: id, reason: "Viewers cannot add blocks" });
+          }
+        }
+        for (const id of beforeIds) {
+          if (!afterIds.has(id)) {
+            rejections.push({ blockId: id, reason: "Viewers cannot delete blocks" });
+          }
+        }
+        return { valid: false, rejections };
+      }
+    }
+
     const rejections: Array<{ blockId: string; reason: string }> = [];
     const afterIds = new Set<string>();
     afterMap.forEach((_v, k) => afterIds.add(k));
@@ -123,7 +172,7 @@ export class MasterValidator {
         const plain = afterMap.get(id);
         if (plain) {
           const block = plain as unknown as Block;
-          const result = this.validateAdd(doc, block, peerId);
+          const result = this.validateAdd(doc, block, peerId, role);
           if (!result.valid) {
             rejections.push({ blockId: id, reason: result.reason! });
           }
@@ -137,7 +186,7 @@ export class MasterValidator {
         const plain = afterMap.get(id);
         if (plain) {
           const block = plain as unknown as Block;
-          const result = this.validateUpdate(doc, block, peerId);
+          const result = this.validateUpdate(doc, block, peerId, role);
           if (!result.valid) {
             rejections.push({ blockId: id, reason: result.reason! });
           }

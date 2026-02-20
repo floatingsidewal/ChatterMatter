@@ -36,6 +36,26 @@
       {
         "command": "chattermatter.toggleOverlay",
         "title": "ChatterMatter: Toggle Comment Overlay"
+      },
+      {
+        "command": "chattermatter.hostSession",
+        "title": "ChatterMatter: Host Review Session"
+      },
+      {
+        "command": "chattermatter.joinSession",
+        "title": "ChatterMatter: Join Review Session"
+      },
+      {
+        "command": "chattermatter.leaveSession",
+        "title": "ChatterMatter: Leave Session"
+      },
+      {
+        "command": "chattermatter.showPeers",
+        "title": "ChatterMatter: Show Peers"
+      },
+      {
+        "command": "chattermatter.showSessionMenu",
+        "title": "ChatterMatter: Session Menu"
       }
     ],
     "menus": {
@@ -73,6 +93,16 @@
           "type": "string",
           "default": "rgba(255, 212, 0, 0.15)",
           "description": "Background color for commented text highlights"
+        },
+        "chattermatter.p2p.defaultPort": {
+          "type": "number",
+          "default": 4117,
+          "description": "Default port for hosting P2P review sessions"
+        },
+        "chattermatter.p2p.displayName": {
+          "type": "string",
+          "default": "",
+          "description": "Your display name for P2P review sessions"
         }
       }
     }

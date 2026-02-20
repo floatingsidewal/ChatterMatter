@@ -20,6 +20,10 @@ export interface SessionConfig {
   port: number;
   /** Optional sidecar mode (write blocks to .chatter file instead of inline). */
   sidecar?: boolean;
+  /** Auto-save interval in milliseconds (default: 30000). */
+  autoSaveInterval?: number;
+  /** Initial CRDT state to resume from (Yjs encoded state). */
+  initialState?: Uint8Array;
 }
 
 export interface SessionInfo {
@@ -34,10 +38,12 @@ export interface SessionInfo {
 // Peers
 // ---------------------------------------------------------------------------
 
+export type PeerRole = "master" | "reviewer" | "viewer";
+
 export interface PeerInfo {
   peerId: string;
   name: string;
-  role: "master" | "reviewer" | "viewer";
+  role: PeerRole;
   connectedAt: string;
 }
 
@@ -52,6 +58,9 @@ export type Message =
   | { type: "session"; action: "join" | "leave" | "end"; peerId: string; name?: string }
   | { type: "auth"; peerId: string; name: string; role?: "reviewer" | "viewer" }
   | { type: "auth_ok"; peerId: string; sessionInfo: SessionInfo }
+  | { type: "role_change"; peerId: string; newRole: PeerRole; changedBy: string }
+  | { type: "doc_request" }
+  | { type: "doc_content"; markdown: string; path: string }
   | { type: "ping" }
   | { type: "pong" };
 
@@ -74,6 +83,7 @@ export type SessionEvent =
   | { type: "block_added"; blockId: string; peerId: string }
   | { type: "block_updated"; blockId: string; peerId: string }
   | { type: "block_rejected"; blockId: string; peerId: string; reason: string }
+  | { type: "role_changed"; peerId: string; oldRole: PeerRole; newRole: PeerRole }
   | { type: "session_ended" }
   | { type: "error"; message: string };
 

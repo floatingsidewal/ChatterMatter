@@ -10,15 +10,17 @@ export type {
   SessionConfig,
   SessionInfo,
   PeerInfo,
+  PeerRole,
   Message,
-  ValidationResult,
   SessionEvent,
   SessionEventHandler,
 } from "./types.js";
+export type { ValidationResult } from "./types.js";
 
 // Sessions
 export { MasterSession } from "./master.js";
 export { ClientSession } from "./client.js";
+export type { DocumentContent } from "./client.js";
 
 // Yjs-ChatterMatter bridge
 export {
@@ -43,3 +45,7 @@ export type { PresenceState, PeerPresence } from "./presence.js";
 
 // Protocol
 export { encodeMessage, decodeMessage } from "./protocol.js";
+
+// Storage
+export { SessionStorage } from "./storage.js";
+export type { SessionMeta, StoredPeer, StoredSession } from "./storage.js";
