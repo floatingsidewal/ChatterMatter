@@ -79,13 +79,17 @@
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "build:tests": "esbuild src/test/suite/index.ts src/test/suite/extension.test.ts --bundle --outdir=dist/test/suite --external:vscode --external:chattermatter --format=cjs --platform=node --sourcemap && esbuild src/test/runTest.ts --bundle --outdir=dist/test --external:@vscode/test-electron --format=cjs --platform=node --sourcemap",
     "watch": "npm run build -- --watch",
     "lint": "tsc --noEmit",
+    "test": "npm run build && npm run build:tests && node dist/test/runTest.js",
+    "test:ci": "npm run build && npm run lint",
     "package": "npm run build && npx @vscode/vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.27.3",
     "typescript": "^5.7.0"
   },
