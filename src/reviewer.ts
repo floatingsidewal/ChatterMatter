@@ -4,10 +4,8 @@
  * Produces `ai_feedback` blocks anchored to specific locations in the document.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "node:crypto";
 import { stripBlocks } from "./parser.js";
-import { serializeBlock } from "./serializer.js";
 import type { Block } from "./types.js";
 
 export interface ReviewOptions {
@@ -61,6 +59,16 @@ Rules:
  * Review a Markdown document using Claude and return ChatterMatter blocks.
  */
 export async function reviewDocument(options: ReviewOptions): Promise<ReviewResult> {
+  let Anthropic: typeof import("@anthropic-ai/sdk").default;
+  try {
+    Anthropic = (await import("@anthropic-ai/sdk")).default;
+  } catch {
+    throw new Error(
+      "The @anthropic-ai/sdk package is required for AI review.\n" +
+      "Install it with: npm install @anthropic-ai/sdk"
+    );
+  }
+
   const clean = stripBlocks(options.markdown);
   const model = options.model ?? "claude-sonnet-4-20250514";
   const author = options.author ?? "ai-reviewer";
@@ -81,8 +89,8 @@ export async function reviewDocument(options: ReviewOptions): Promise<ReviewResu
   });
 
   const text = response.content
-    .filter((c): c is Anthropic.TextBlock => c.type === "text")
-    .map((c) => c.text)
+    .filter((c) => c.type === "text")
+    .map((c) => (c as { text: string }).text)
     .join("");
 
   const blocks = parseReviewResponse(text, author, model);

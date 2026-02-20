@@ -8,18 +8,17 @@
   "bin": {
     "chattermatter": "dist/cli/main.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
-  "keywords": [
-    "markdown",
-    "comments",
-    "review",
-    "annotation"
-  ],
+  "keywords": ["markdown", "comments", "review", "annotation"],
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -27,8 +26,10 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
     "commander": "^13.0.0"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.78.0"
   },
   "engines": {
     "node": ">=20.0.0"
