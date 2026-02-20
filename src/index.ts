@@ -62,3 +62,17 @@ export {
 // Reviewer (AI-powered document review)
 export type { ReviewOptions, ReviewResult } from "./reviewer.js";
 export { reviewDocument, formatReviewSummary } from "./reviewer.js";
+
+// P2P collaborative sessions
+export { MasterSession, ClientSession } from "./p2p/index.js";
+export { createDoc, createEmptyDoc, materialize } from "./p2p/index.js";
+export { MasterValidator } from "./p2p/index.js";
+export { PresenceManager } from "./p2p/index.js";
+export type {
+  SessionConfig,
+  SessionInfo,
+  PeerInfo,
+  SessionEvent,
+  SessionEventHandler,
+} from "./p2p/index.js";
+export type { PresenceState, PeerPresence } from "./p2p/index.js";

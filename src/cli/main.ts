@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * ChatterMatter CLI — chattermatter add, list, resolve, strip, review
+ * ChatterMatter CLI — chattermatter add, list, resolve, strip, review, session
  */
 
 import { Command } from "commander";
@@ -19,6 +19,7 @@ import {
 import type { BlockType, ThreadNode } from "../types.js";
 import type { FilterOptions } from "../document.js";
 import { BLOCK_TYPES } from "../types.js";
+import { registerSessionCommands } from "./session.js";
 
 const program = new Command();
 
@@ -328,5 +329,8 @@ function printThread(node: ThreadNode, depth: number): void {
     printThread(child, depth + 1);
   }
 }
+
+// P2P session commands
+registerSessionCommands(program);
 
 program.parse();
