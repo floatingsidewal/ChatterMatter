@@ -14,14 +14,20 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },
-  "keywords": ["markdown", "comments", "review", "annotation"],
+  "keywords": [
+    "markdown",
+    "comments",
+    "review",
+    "annotation"
+  ],
   "license": "MIT",
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "commander": "^13.0.0"
   },
   "engines": {

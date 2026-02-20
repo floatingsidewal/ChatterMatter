@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * ChatterMatter CLI — chattermatter add, list, resolve, strip
+ * ChatterMatter CLI — chattermatter add, list, resolve, strip, review
  */
 
 import { Command } from "commander";
@@ -216,6 +216,85 @@ program
       }
       process.exit(1);
     }
+  });
+
+// ---------------------------------------------------------------------------
+// chattermatter review
+// ---------------------------------------------------------------------------
+program
+  .command("review")
+  .description("AI-powered document review using Claude")
+  .argument("<file>", "Markdown file to review")
+  .option("-m, --model <model>", "Claude model to use", "claude-sonnet-4-20250514")
+  .option("-a, --author <name>", "Author name for AI blocks", "ai-reviewer")
+  .option("--instructions <text>", "Custom review instructions")
+  .option("--sidecar", "Write blocks to sidecar file instead of inline")
+  .option("--dry-run", "Print blocks to stdout without writing to file")
+  .option("--json", "Output blocks as JSON (implies --dry-run)")
+  .action(async (file: string, opts) => {
+    const filePath = resolve(file);
+    const markdown = await readFile(filePath, "utf-8");
+
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.error("Error: ANTHROPIC_API_KEY environment variable is required.");
+      console.error("Set it with: export ANTHROPIC_API_KEY=your-key-here");
+      process.exit(1);
+    }
+
+    const { reviewDocument, formatReviewSummary } = await import("../reviewer.js");
+    const { serializeBlocks, appendBlock } = await import("../serializer.js");
+
+    console.error(`Reviewing ${file} with ${opts.model}...`);
+
+    const result = await reviewDocument({
+      markdown,
+      model: opts.model,
+      author: opts.author,
+      instructions: opts.instructions,
+    });
+
+    if (result.blocks.length === 0) {
+      console.log("No issues found.");
+      return;
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify(result.blocks, null, 2));
+      return;
+    }
+
+    if (opts.dryRun) {
+      console.log(formatReviewSummary(result.blocks));
+      return;
+    }
+
+    // Write blocks to file
+    const targetPath = opts.sidecar ? filePath + ".chatter" : filePath;
+
+    if (opts.sidecar) {
+      let sidecarContent = "";
+      try {
+        sidecarContent = await readFile(targetPath, "utf-8");
+      } catch {
+        // Sidecar doesn't exist yet
+      }
+      let content = sidecarContent;
+      for (const block of result.blocks) {
+        content = content
+          ? appendBlock(content, block)
+          : "```chattermatter\n" + JSON.stringify(block, null, 2) + "\n```\n";
+      }
+      await writeFile(targetPath, content, "utf-8");
+    } else {
+      let updated = markdown;
+      for (const block of result.blocks) {
+        updated = appendBlock(updated, block);
+      }
+      await writeFile(filePath, updated, "utf-8");
+    }
+
+    console.log(formatReviewSummary(result.blocks));
+    console.log(`Wrote ${result.blocks.length} block(s) to ${targetPath}`);
   });
 
 // ---------------------------------------------------------------------------

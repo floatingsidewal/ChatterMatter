@@ -58,3 +58,7 @@ export {
   removeBlock,
   replaceBlock,
 } from "./serializer.js";
+
+// Reviewer (AI-powered document review)
+export type { ReviewOptions, ReviewResult } from "./reviewer.js";
+export { reviewDocument, formatReviewSummary } from "./reviewer.js";
