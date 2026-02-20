@@ -1,0 +1,40 @@
+name: "ChatterMatter Review"
+description: "AI-powered review of Markdown files in pull requests using Claude"
+branding:
+  icon: "message-square"
+  color: "blue"
+
+inputs:
+  anthropic_api_key:
+    description: "Anthropic API key for Claude"
+    required: true
+  model:
+    description: "Claude model to use"
+    required: false
+    default: "claude-sonnet-4-20250514"
+  instructions:
+    description: "Custom review instructions for the AI"
+    required: false
+    default: ""
+  mode:
+    description: "Output mode: 'inline' writes blocks into .md files, 'sidecar' writes to .md.chatter files, 'comment' posts a PR comment"
+    required: false
+    default: "comment"
+  file_pattern:
+    description: "Glob pattern for files to review (default: '**/*.md')"
+    required: false
+    default: "**/*.md"
+  exclude_pattern:
+    description: "Glob pattern for files to exclude (default: 'node_modules/**')"
+    required: false
+    default: "node_modules/**"
+
+outputs:
+  blocks_count:
+    description: "Total number of feedback blocks generated"
+  files_reviewed:
+    description: "Number of files reviewed"
+
+runs:
+  using: "node20"
+  main: "entrypoint.mjs"

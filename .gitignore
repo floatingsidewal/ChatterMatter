@@ -29,6 +29,9 @@ pids
 # Dependencies
 node_modules/
 
+# Build output
+dist/
+
 # Temporary files
 *.tmp
 *.temp
