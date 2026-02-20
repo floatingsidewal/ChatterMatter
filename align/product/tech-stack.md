@@ -11,14 +11,16 @@
 
 ## Frontend
 
-- Web app technology TBD (Phase 2)
+- **Next.js 15 + React 19** — web application (Phase 2)
+- **Tailwind CSS** — web app styling
+- **react-markdown + remark-gfm** — Markdown rendering in the web app
 - VS Code extension API (Phase 2)
-- Obsidian plugin API (Phase 2)
+- Obsidian plugin API (Phase 4)
 
 ## Backend
 
+- **Next.js API routes** — web app server (uses ChatterMatter core library directly)
 - N/A for Phase 1 (CLI is local-only)
-- Web app backend TBD (Phase 2)
 
 ## Database
 

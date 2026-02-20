@@ -15,8 +15,8 @@
 ## Phase 2: Editor + Web App
 
 - **VS Code extension** ✅ — render ChatterMatter overlay, highlight-to-comment UX
-- **Web application** — upload/link a Markdown file, non-technical reviewers comment by highlighting text, AI review with one click
-- **Review dashboard** — review status across documents, unanswered questions, unresolved suggestions
+- **Web application** ✅ — upload/link a Markdown file, non-technical reviewers comment by highlighting text, AI review with one click
+- **Review dashboard** ✅ — review status across documents, unanswered questions, unresolved suggestions
 
 ## Phase 3: Enterprise — Review Layer for Docs-as-Code
 

@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+}
+
+/* Markdown content styling */
+.markdown-body h1 { @apply text-2xl font-bold mt-6 mb-3; }
+.markdown-body h2 { @apply text-xl font-bold mt-5 mb-2; }
+.markdown-body h3 { @apply text-lg font-semibold mt-4 mb-2; }
+.markdown-body h4 { @apply text-base font-semibold mt-3 mb-1; }
+.markdown-body p { @apply my-2 leading-relaxed; }
+.markdown-body ul { @apply list-disc pl-6 my-2; }
+.markdown-body ol { @apply list-decimal pl-6 my-2; }
+.markdown-body li { @apply my-1; }
+.markdown-body code { @apply bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono; }
+.markdown-body pre { @apply bg-gray-100 p-4 rounded-lg overflow-x-auto my-3; }
+.markdown-body pre code { @apply bg-transparent p-0; }
+.markdown-body blockquote { @apply border-l-4 border-gray-300 pl-4 italic my-3 text-gray-600; }
+.markdown-body a { @apply text-blue-600 hover:underline; }
+.markdown-body hr { @apply my-6 border-gray-300; }
+.markdown-body table { @apply border-collapse w-full my-3; }
+.markdown-body th { @apply border border-gray-300 px-3 py-2 bg-gray-100 text-left font-semibold; }
+.markdown-body td { @apply border border-gray-300 px-3 py-2; }
+.markdown-body img { @apply max-w-full rounded; }
+
+/* Comment highlight */
+.comment-highlight {
+  @apply bg-yellow-100 border-b-2 border-yellow-400 cursor-pointer transition-colors;
+}
+.comment-highlight:hover {
+  @apply bg-yellow-200;
+}
+.comment-highlight.active {
+  @apply bg-yellow-300 border-yellow-500;
+}
+
+/* Text selection for commenting */
+::selection {
+  @apply bg-blue-200;
+}
