@@ -97,6 +97,70 @@ export function deleteBlock(doc: Y.Doc, blockId: string): boolean {
   return true;
 }
 
+/**
+ * Delete a block and all its children (replies) from the Yjs Doc.
+ * Returns the list of deleted block IDs.
+ */
+export function deleteBlockWithChildren(doc: Y.Doc, blockId: string): string[] {
+  const blocksMap = getBlocksMap(doc);
+  if (!blocksMap.has(blockId)) return [];
+
+  const deleted: string[] = [];
+
+  // Find all children recursively
+  const findChildren = (parentId: string): string[] => {
+    const children: string[] = [];
+    blocksMap.forEach((value, key) => {
+      const block = plainToBlock(value);
+      if (block.parent_id === parentId) {
+        children.push(key);
+        children.push(...findChildren(key));
+      }
+    });
+    return children;
+  };
+
+  // Get all block IDs to delete (parent + all descendants)
+  const toDelete = [blockId, ...findChildren(blockId)];
+
+  // Delete all in a transaction
+  doc.transact(() => {
+    for (const id of toDelete) {
+      if (blocksMap.has(id)) {
+        blocksMap.delete(id);
+        deleted.push(id);
+      }
+    }
+  });
+
+  return deleted;
+}
+
+/**
+ * Delete all resolved blocks and their children from the Yjs Doc.
+ * Returns the list of deleted block IDs.
+ */
+export function deleteResolvedBlocks(doc: Y.Doc): string[] {
+  const blocksMap = getBlocksMap(doc);
+  const deleted: string[] = [];
+
+  // Find all resolved root blocks (not replies)
+  const resolvedRoots: string[] = [];
+  blocksMap.forEach((value, key) => {
+    const block = plainToBlock(value);
+    if (block.status === "resolved" && !block.parent_id) {
+      resolvedRoots.push(key);
+    }
+  });
+
+  // Delete each resolved root with its children
+  for (const rootId of resolvedRoots) {
+    deleted.push(...deleteBlockWithChildren(doc, rootId));
+  }
+
+  return deleted;
+}
+
 // ---------------------------------------------------------------------------
 // Materialization (Yjs → .chatter file content)
 // ---------------------------------------------------------------------------

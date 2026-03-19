@@ -37,10 +37,18 @@ export class MasterValidator {
 
   /**
    * Check if a role has write permissions.
-   * Viewers cannot write; masters and reviewers can.
+   * Viewers cannot write; owners, moderators, and reviewers can.
    */
   canWrite(role: PeerRole): boolean {
     return role !== "viewer";
+  }
+
+  /**
+   * Check if a role has delete permissions.
+   * Only owners and moderators can delete.
+   */
+  canDelete(role: PeerRole): boolean {
+    return role === "owner" || role === "moderator";
   }
 
   /**
@@ -110,9 +118,9 @@ export class MasterValidator {
    * Validate a proposed block deletion.
    */
   validateDelete(doc: Y.Doc, blockId: string, peerId: string, role: PeerRole = "reviewer"): ValidationResult {
-    // Role check
-    if (!this.canWrite(role)) {
-      return { valid: false, reason: "Viewers cannot delete blocks" };
+    // Role check - only owners and moderators can delete
+    if (!this.canDelete(role)) {
+      return { valid: false, reason: "Only owners and moderators can delete blocks" };
     }
 
     const rateLimitResult = this.checkRateLimit(peerId);

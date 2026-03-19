@@ -1,16 +1,55 @@
-# P2P Master-Client Architecture for ChatterMatter
+# P2P Owner-Client Architecture for ChatterMatter
+
+> **Implementation Status:** Phase 1-2 complete using WebSocket transport. WebRTC is designed but not yet implemented. See [Current Implementation](#current-implementation) for what's working today.
 
 ## Problem Statement
 
 ChatterMatter currently defines a file-native comment format (§13 of the spec explicitly defers real-time collaboration, transport, and permissions). We want to enable **live, collaborative review sessions** where:
 
-1. A **master** (document owner) hosts a review session
-2. **Clients** (reviewers) connect to the master and participate in near real-time
+1. An **owner** (document owner) hosts a review session
+2. **Clients** (reviewers) connect to the owner and participate in near real-time
 3. All writes to `.chatter` sidecar files are stored **locally on each client's machine**
-4. All mutations flow **through the master**, who is the authoritative relay
+4. All mutations flow **through the owner**, who is the authoritative relay
 5. Many clients can participate simultaneously (many-to-many channels)
 
+## Current Implementation
+
+**What's built (Phase 1-2):**
+- WebSocket-based star topology (owner hosts, clients connect)
+- Yjs CRDT for conflict-free real-time sync
+- Role-based permissions: owner, moderator, reviewer, viewer
+- Validation layer prevents invalid blocks
+- Rate limiting prevents spam
+- Auto-reconnect on disconnect
+- VS Code extension with host/join commands
+- WebView for peers to view document and add comments
+
+**What's designed but not built (Phase 3+):**
+- WebRTC transport (NAT traversal, encryption)
+- Session persistence (save/resume)
+- Backup owner (failover)
+- Session history/audit
+
 ## Architecture Overview
+
+### Current: WebSocket Star Topology
+
+```
+         ┌────────────┐   ┌────────────┐   ┌────────────┐
+         │ Client A   │   │  OWNER     │   │ Client B   │
+         │ (reviewer) │   │  (host)    │   │ (viewer)   │
+         └─────┬──────┘   └─────┬──────┘   └─────┬──────┘
+               │                │                │
+               │◄───────────────┤────────────────►│
+               │   WebSocket    │   WebSocket    │
+               │                │                │
+         ┌─────▼──────┐  ┌─────▼──────┐   ┌─────▼──────┐
+         │ .chatter   │  │ .chatter   │   │ (WebView)  │
+         │ (local)    │  │ (local)    │   │            │
+         └────────────┘  └────────────┘   └────────────┘
+```
+
+### Future: WebRTC with Signaling
 
 ```
                     ┌─────────────────┐
@@ -22,8 +61,8 @@ ChatterMatter currently defines a file-native comment format (§13 of the spec e
               ┌──────────────┼──────────────┐
               │              │              │
          ┌────▼────┐   ┌────▼────┐   ┌────▼────┐
-         │ Client A │   │ MASTER  │   │ Client C │
-         │ (peer)   │   │ (owner) │   │ (peer)   │
+         │ Client A │   │ OWNER   │   │ Client C │
+         │ (peer)   │   │ (host)  │   │ (peer)   │
          └────┬─────┘   └────┬────┘   └─────┬───┘
               │              │              │
               │◄─────────────┤──────────────►│
@@ -37,7 +76,7 @@ ChatterMatter currently defines a file-native comment format (§13 of the spec e
          └──────────┘  └─────────┘   └─────────┘
 ```
 
-**Topology: Star with master as hub.** Clients never talk directly to each other. All operations route through the master, who validates, sequences, and relays them to all connected peers. This is not a pure mesh — it is a **hub-and-spoke** model that keeps the master authoritative.
+**Topology: Star with owner as hub.** Clients never talk directly to each other. All operations route through the master, who validates, sequences, and relays them to all connected peers. This is not a pure mesh — it is a **hub-and-spoke** model that keeps the master authoritative.
 
 ## Protocol Recommendation
 
@@ -317,11 +356,16 @@ The spec's round-trip preservation rule (§9) is critical: the CRDT layer must p
 
 ## Phasing
 
-| Phase | Scope |
-|-------|-------|
-| **P2P Phase 1** | Master-client star topology, WebRTC, Yjs sync, basic presence. CLI-only (two terminals can sync). |
-| **P2P Phase 2** | Web app integration, session management UI, invite links, WebSocket fallback. |
-| **P2P Phase 3** | Roles and permissions, session persistence, backup master, large group sharding. |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| **P2P Phase 1** | Owner-client star topology, WebSocket (not WebRTC), Yjs sync, basic presence. | ✅ Complete |
+| **P2P Phase 2** | VS Code extension, session management UI, WebView for peers. | ✅ Complete |
+| **P2P Phase 2b** | Roles and permissions (owner/moderator/reviewer/viewer), cascade delete. | ✅ Complete |
+| **P2P Phase 3.1** | Session persistence (save/resume). | Planned |
+| **P2P Phase 3.2** | Backup owner, session history/audit. | Planned |
+| **P2P Phase 4** | WebRTC upgrade for NAT traversal, authentication. | Future |
+
+> **Note:** Phase 1-2 was implemented with WebSocket instead of WebRTC for simplicity. WebRTC remains the long-term target for better NAT traversal and browser support. See the backlog for WebRTC migration path.
 
 ## References
 

@@ -11,6 +11,8 @@ import {
   getBlock,
   setBlock,
   deleteBlock,
+  deleteBlockWithChildren,
+  deleteResolvedBlocks,
   materialize,
   observeBlocks,
   getBlocksMap,
@@ -281,5 +283,197 @@ describe("Yjs sync between docs", () => {
 
     doc1.destroy();
     doc2.destroy();
+  });
+});
+
+describe("deleteBlockWithChildren", () => {
+  it("deletes a block with no children", () => {
+    const doc = createDoc(SAMPLE_MARKDOWN);
+    const deleted = deleteBlockWithChildren(doc, "c1");
+    expect(deleted).toEqual(["c1"]);
+    expect(getBlocks(doc)).toHaveLength(1);
+    expect(getBlock(doc, "c1")).toBeUndefined();
+    doc.destroy();
+  });
+
+  it("deletes a block and all its children", () => {
+    const doc = createEmptyDoc();
+
+    // Create a thread with parent and two replies
+    setBlock(doc, { id: "root", type: "comment", content: "Root comment", author: "alice", status: "open" });
+    setBlock(doc, { id: "reply1", type: "comment", content: "First reply", author: "bob", status: "open", parent_id: "root" });
+    setBlock(doc, { id: "reply2", type: "comment", content: "Second reply", author: "charlie", status: "open", parent_id: "root" });
+
+    expect(getBlocks(doc)).toHaveLength(3);
+
+    const deleted = deleteBlockWithChildren(doc, "root");
+    expect(deleted).toHaveLength(3);
+    expect(deleted).toContain("root");
+    expect(deleted).toContain("reply1");
+    expect(deleted).toContain("reply2");
+    expect(getBlocks(doc)).toHaveLength(0);
+
+    doc.destroy();
+  });
+
+  it("deletes nested children recursively", () => {
+    const doc = createEmptyDoc();
+
+    // Create a deeply nested thread
+    setBlock(doc, { id: "root", type: "comment", content: "Root", author: "alice", status: "open" });
+    setBlock(doc, { id: "level1", type: "comment", content: "Level 1", author: "bob", status: "open", parent_id: "root" });
+    setBlock(doc, { id: "level2", type: "comment", content: "Level 2", author: "charlie", status: "open", parent_id: "level1" });
+    setBlock(doc, { id: "level3", type: "comment", content: "Level 3", author: "dave", status: "open", parent_id: "level2" });
+
+    expect(getBlocks(doc)).toHaveLength(4);
+
+    const deleted = deleteBlockWithChildren(doc, "root");
+    expect(deleted).toHaveLength(4);
+    expect(getBlocks(doc)).toHaveLength(0);
+
+    doc.destroy();
+  });
+
+  it("only deletes the subtree starting from the specified block", () => {
+    const doc = createEmptyDoc();
+
+    // Create two separate threads
+    setBlock(doc, { id: "thread1", type: "comment", content: "Thread 1", author: "alice", status: "open" });
+    setBlock(doc, { id: "reply1", type: "comment", content: "Reply to thread 1", author: "bob", status: "open", parent_id: "thread1" });
+    setBlock(doc, { id: "thread2", type: "comment", content: "Thread 2", author: "charlie", status: "open" });
+    setBlock(doc, { id: "reply2", type: "comment", content: "Reply to thread 2", author: "dave", status: "open", parent_id: "thread2" });
+
+    expect(getBlocks(doc)).toHaveLength(4);
+
+    const deleted = deleteBlockWithChildren(doc, "thread1");
+    expect(deleted).toHaveLength(2);
+    expect(deleted).toContain("thread1");
+    expect(deleted).toContain("reply1");
+
+    // Thread 2 should still exist
+    expect(getBlocks(doc)).toHaveLength(2);
+    expect(getBlock(doc, "thread2")).toBeDefined();
+    expect(getBlock(doc, "reply2")).toBeDefined();
+
+    doc.destroy();
+  });
+
+  it("returns empty array for non-existent block", () => {
+    const doc = createDoc(SAMPLE_MARKDOWN);
+    const deleted = deleteBlockWithChildren(doc, "nonexistent");
+    expect(deleted).toEqual([]);
+    expect(getBlocks(doc)).toHaveLength(2);
+    doc.destroy();
+  });
+
+  it("can delete a child without affecting parent or siblings", () => {
+    const doc = createEmptyDoc();
+
+    setBlock(doc, { id: "parent", type: "comment", content: "Parent", author: "alice", status: "open" });
+    setBlock(doc, { id: "child1", type: "comment", content: "Child 1", author: "bob", status: "open", parent_id: "parent" });
+    setBlock(doc, { id: "child2", type: "comment", content: "Child 2", author: "charlie", status: "open", parent_id: "parent" });
+    setBlock(doc, { id: "grandchild", type: "comment", content: "Grandchild", author: "dave", status: "open", parent_id: "child1" });
+
+    const deleted = deleteBlockWithChildren(doc, "child1");
+    expect(deleted).toHaveLength(2);
+    expect(deleted).toContain("child1");
+    expect(deleted).toContain("grandchild");
+
+    // Parent and sibling should still exist
+    expect(getBlocks(doc)).toHaveLength(2);
+    expect(getBlock(doc, "parent")).toBeDefined();
+    expect(getBlock(doc, "child2")).toBeDefined();
+
+    doc.destroy();
+  });
+});
+
+describe("deleteResolvedBlocks", () => {
+  it("deletes resolved root threads and their children", () => {
+    const doc = createEmptyDoc();
+
+    // Resolved thread with replies
+    setBlock(doc, { id: "resolved1", type: "comment", content: "Resolved comment", author: "alice", status: "resolved" });
+    setBlock(doc, { id: "reply1", type: "comment", content: "Reply to resolved", author: "bob", status: "open", parent_id: "resolved1" });
+
+    // Open thread
+    setBlock(doc, { id: "open1", type: "comment", content: "Open comment", author: "charlie", status: "open" });
+
+    expect(getBlocks(doc)).toHaveLength(3);
+
+    const deleted = deleteResolvedBlocks(doc);
+    expect(deleted).toHaveLength(2);
+    expect(deleted).toContain("resolved1");
+    expect(deleted).toContain("reply1");
+
+    // Open thread should remain
+    expect(getBlocks(doc)).toHaveLength(1);
+    expect(getBlock(doc, "open1")).toBeDefined();
+
+    doc.destroy();
+  });
+
+  it("deletes multiple resolved threads", () => {
+    const doc = createEmptyDoc();
+
+    setBlock(doc, { id: "resolved1", type: "comment", content: "Resolved 1", author: "alice", status: "resolved" });
+    setBlock(doc, { id: "resolved2", type: "comment", content: "Resolved 2", author: "bob", status: "resolved" });
+    setBlock(doc, { id: "open1", type: "comment", content: "Open", author: "charlie", status: "open" });
+
+    const deleted = deleteResolvedBlocks(doc);
+    expect(deleted).toHaveLength(2);
+    expect(getBlocks(doc)).toHaveLength(1);
+    expect(getBlock(doc, "open1")).toBeDefined();
+
+    doc.destroy();
+  });
+
+  it("does not delete resolved replies (only root threads)", () => {
+    const doc = createEmptyDoc();
+
+    // Open thread with resolved reply
+    setBlock(doc, { id: "open1", type: "comment", content: "Open thread", author: "alice", status: "open" });
+    setBlock(doc, { id: "reply1", type: "comment", content: "Resolved reply", author: "bob", status: "resolved", parent_id: "open1" });
+
+    const deleted = deleteResolvedBlocks(doc);
+    expect(deleted).toHaveLength(0);
+    expect(getBlocks(doc)).toHaveLength(2);
+
+    doc.destroy();
+  });
+
+  it("returns empty array when no resolved blocks exist", () => {
+    const doc = createEmptyDoc();
+
+    setBlock(doc, { id: "open1", type: "comment", content: "Open 1", author: "alice", status: "open" });
+    setBlock(doc, { id: "open2", type: "comment", content: "Open 2", author: "bob", status: "open" });
+
+    const deleted = deleteResolvedBlocks(doc);
+    expect(deleted).toHaveLength(0);
+    expect(getBlocks(doc)).toHaveLength(2);
+
+    doc.destroy();
+  });
+
+  it("returns empty array for empty doc", () => {
+    const doc = createEmptyDoc();
+    const deleted = deleteResolvedBlocks(doc);
+    expect(deleted).toHaveLength(0);
+    doc.destroy();
+  });
+
+  it("deletes deeply nested children of resolved threads", () => {
+    const doc = createEmptyDoc();
+
+    setBlock(doc, { id: "resolved", type: "comment", content: "Resolved", author: "alice", status: "resolved" });
+    setBlock(doc, { id: "level1", type: "comment", content: "Level 1", author: "bob", status: "open", parent_id: "resolved" });
+    setBlock(doc, { id: "level2", type: "comment", content: "Level 2", author: "charlie", status: "open", parent_id: "level1" });
+    setBlock(doc, { id: "level3", type: "comment", content: "Level 3", author: "dave", status: "open", parent_id: "level2" });
+
+    const deleted = deleteResolvedBlocks(doc);
+    expect(deleted).toHaveLength(4);
+    expect(getBlocks(doc)).toHaveLength(0);
+
+    doc.destroy();
   });
 });

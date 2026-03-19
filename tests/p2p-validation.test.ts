@@ -140,12 +140,31 @@ describe("MasterValidator", () => {
   });
 
   describe("validateDelete", () => {
-    it("accepts deletion of existing block", () => {
+    it("accepts deletion of existing block by owner", () => {
       const doc = createDoc(SAMPLE_MARKDOWN);
       const validator = new MasterValidator();
 
-      const result = validator.validateDelete(doc, "existing1", "peer1");
+      const result = validator.validateDelete(doc, "existing1", "peer1", "owner");
       expect(result.valid).toBe(true);
+      doc.destroy();
+    });
+
+    it("accepts deletion of existing block by moderator", () => {
+      const doc = createDoc(SAMPLE_MARKDOWN);
+      const validator = new MasterValidator();
+
+      const result = validator.validateDelete(doc, "existing1", "peer1", "moderator");
+      expect(result.valid).toBe(true);
+      doc.destroy();
+    });
+
+    it("rejects deletion by reviewer", () => {
+      const doc = createDoc(SAMPLE_MARKDOWN);
+      const validator = new MasterValidator();
+
+      const result = validator.validateDelete(doc, "existing1", "peer1", "reviewer");
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain("Only owners and moderators");
       doc.destroy();
     });
 
@@ -153,7 +172,7 @@ describe("MasterValidator", () => {
       const doc = createDoc(SAMPLE_MARKDOWN);
       const validator = new MasterValidator();
 
-      const result = validator.validateDelete(doc, "nonexistent", "peer1");
+      const result = validator.validateDelete(doc, "nonexistent", "peer1", "owner");
       expect(result.valid).toBe(false);
       doc.destroy();
     });
@@ -223,15 +242,28 @@ describe("MasterValidator", () => {
   });
 
   describe("role enforcement", () => {
-    it("canWrite returns true for master and reviewer", () => {
+    it("canWrite returns true for owner, moderator, and reviewer", () => {
       const validator = new MasterValidator();
-      expect(validator.canWrite("master")).toBe(true);
+      expect(validator.canWrite("owner")).toBe(true);
+      expect(validator.canWrite("moderator")).toBe(true);
       expect(validator.canWrite("reviewer")).toBe(true);
     });
 
     it("canWrite returns false for viewer", () => {
       const validator = new MasterValidator();
       expect(validator.canWrite("viewer")).toBe(false);
+    });
+
+    it("canDelete returns true for owner and moderator", () => {
+      const validator = new MasterValidator();
+      expect(validator.canDelete("owner")).toBe(true);
+      expect(validator.canDelete("moderator")).toBe(true);
+    });
+
+    it("canDelete returns false for reviewer and viewer", () => {
+      const validator = new MasterValidator();
+      expect(validator.canDelete("reviewer")).toBe(false);
+      expect(validator.canDelete("viewer")).toBe(false);
     });
 
     it("validateAdd rejects viewers", () => {
@@ -274,7 +306,7 @@ describe("MasterValidator", () => {
 
       const result = validator.validateDelete(doc, "existing1", "viewer-peer", "viewer");
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain("Viewers cannot delete");
+      expect(result.reason).toContain("Only owners and moderators");
       doc.destroy();
     });
 

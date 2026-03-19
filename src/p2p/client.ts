@@ -16,12 +16,13 @@ import {
   createEmptyDoc,
   getBlocks,
   setBlock,
-  deleteBlock as syncDeleteBlock,
+  deleteBlockWithChildren,
   materialize,
   observeBlocks,
 } from "./sync.js";
 import { PresenceManager } from "./presence.js";
 import { encodeMessage, decodeMessage } from "./protocol.js";
+import { extractTokenFromUrl } from "./tokens.js";
 import type {
   SessionInfo,
   PeerInfo,
@@ -57,6 +58,8 @@ export class ClientSession {
   private reconnectAttempt = 0;
   private connected = false;
   private authenticated = false;
+  private lastSentStateVector: Uint8Array | null = null;
+  private token: string | null = null;
 
   constructor(options: {
     url: string;
@@ -70,6 +73,9 @@ export class ClientSession {
     this.peerRole = options.role ?? "reviewer";
     this.doc = createEmptyDoc();
     this.presence = new PresenceManager(this.doc, options.name);
+
+    // Extract token from URL if present
+    this.token = extractTokenFromUrl(options.url);
   }
 
   /**
@@ -96,12 +102,21 @@ export class ClientSession {
         this.reconnectAttempt = 0;
 
         // Send auth message
-        this.send({
+        // Auth only accepts "reviewer" or "viewer" - owner/moderator roles are assigned by the host
+        const authRole = (this.peerRole === "reviewer" || this.peerRole === "viewer")
+          ? this.peerRole
+          : "reviewer";
+        const authMsg: Message & { type: "auth" } = {
           type: "auth",
           peerId: this.peerId,
           name: this.peerName,
-          role: this.peerRole === "master" ? "reviewer" : this.peerRole,
-        });
+          role: authRole,
+        };
+        // Include token if present
+        if (this.token) {
+          authMsg.token = this.token;
+        }
+        this.send(authMsg);
 
         // Start ping keepalive
         this.startPing();
@@ -110,7 +125,7 @@ export class ClientSession {
       this.ws.on("message", (raw: Buffer) => {
         try {
           const msg = decodeMessage(raw);
-          this.handleMessage(msg, resolve);
+          this.handleMessage(msg, resolve, reject);
         } catch (err) {
           this.emit({
             type: "error",
@@ -143,11 +158,23 @@ export class ClientSession {
         this.emit({ type: "error", message: `WebSocket error: ${err.message}` });
       });
 
-      // Set up local change observation to send to master
+      // Set up observation for all block changes
       this.cleanupObserver = observeBlocks(this.doc, (changes, origin) => {
-        // Only send changes that originated locally (not from sync)
-        if (origin === "remote") return;
-        this.sendDocUpdate();
+        // Emit events for all changes (local and remote)
+        for (const change of changes) {
+          if (change.action === "add") {
+            this.emit({ type: "block_added", blockId: change.blockId, peerId: this.peerId });
+          } else if (change.action === "update") {
+            this.emit({ type: "block_updated", blockId: change.blockId, peerId: this.peerId });
+          } else if (change.action === "delete") {
+            this.emit({ type: "block_deleted", blockId: change.blockId, peerId: this.peerId });
+          }
+        }
+
+        // Only send updates to master for local changes (not from sync)
+        if (origin !== "remote") {
+          this.sendDocUpdate();
+        }
       });
     });
   }
@@ -189,10 +216,11 @@ export class ClientSession {
   }
 
   /**
-   * Delete a block by ID.
+   * Delete a block and all its children by ID.
    */
   deleteBlock(blockId: string): boolean {
-    return syncDeleteBlock(this.doc, blockId);
+    const deleted = deleteBlockWithChildren(this.doc, blockId);
+    return deleted.length > 0;
   }
 
   /**
@@ -230,6 +258,7 @@ export class ClientSession {
   private handleMessage(
     msg: Message,
     authResolve?: (info: SessionInfo) => void,
+    authReject?: (err: Error) => void,
   ): void {
     switch (msg.type) {
       case "auth_ok":
@@ -238,11 +267,20 @@ export class ClientSession {
         if (authResolve) authResolve(msg.sessionInfo);
         break;
 
+      case "auth_rejected":
+        this.emit({ type: "error", message: msg.reason });
+        // Don't reconnect - auth was explicitly rejected
+        this.reconnectAttempt = RECONNECT_DELAYS.length;
+        if (authReject) authReject(new Error(msg.reason));
+        break;
+
       case "doc_content":
         this.documentContent = {
           markdown: msg.markdown,
           path: msg.path,
         };
+        // Emit event so UI can update
+        this.emit({ type: "document_updated" });
         break;
 
       case "sync":
@@ -314,7 +352,14 @@ export class ClientSession {
   private sendDocUpdate(): void {
     if (!this.ws || !this.authenticated) return;
 
-    const update = Y.encodeStateAsUpdate(this.doc);
+    // Send incremental update based on last sent state (more efficient)
+    const update = this.lastSentStateVector
+      ? Y.encodeStateAsUpdate(this.doc, this.lastSentStateVector)
+      : Y.encodeStateAsUpdate(this.doc);
+
+    // Update the state vector for next incremental send
+    this.lastSentStateVector = Y.encodeStateVector(this.doc);
+
     this.send({ type: "sync", data: update });
   }
 

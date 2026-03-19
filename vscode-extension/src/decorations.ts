@@ -1,7 +1,40 @@
 import * as vscode from "vscode";
-import { parse, stripBlocks } from "chattermatter";
+import { parse, stripBlocks, listBlocks } from "chattermatter";
 import { resolveAnchor } from "chattermatter";
 import type { Block, Anchor } from "chattermatter";
+import { existsSync, readFileSync } from "node:fs";
+
+/**
+ * Load blocks from both the markdown file and its sidecar (.chatter) if present.
+ */
+function loadAllBlocks(documentPath: string, documentText: string): Block[] {
+  // Get blocks from the markdown file (inline blocks)
+  const { blocks: parsedBlocks } = parse(documentText);
+  const inlineBlocks = parsedBlocks.map(pb => pb.block);
+
+  // Get blocks from the sidecar file if it exists
+  const sidecarPath = documentPath + ".chatter";
+  let sidecarBlocks: Block[] = [];
+  if (existsSync(sidecarPath)) {
+    try {
+      const sidecarContent = readFileSync(sidecarPath, "utf-8");
+      sidecarBlocks = listBlocks(sidecarContent);
+    } catch {
+      // Ignore read errors
+    }
+  }
+
+  // Combine blocks, deduplicating by ID (sidecar takes precedence)
+  const blockMap = new Map<string, Block>();
+  for (const block of inlineBlocks) {
+    blockMap.set(block.id, block);
+  }
+  for (const block of sidecarBlocks) {
+    blockMap.set(block.id, block);
+  }
+
+  return Array.from(blockMap.values());
+}
 
 /**
  * Provides text decorations for ChatterMatter-anchored regions in Markdown files.
@@ -65,7 +98,8 @@ export class ChatterMatterDecorationProvider {
     if (editor.document.languageId !== "markdown") return;
 
     const text = editor.document.getText();
-    const { blocks } = parse(text);
+    // Load blocks from both inline and sidecar sources
+    const blocks = loadAllBlocks(editor.document.uri.fsPath, text);
     const clean = stripBlocks(text);
 
     const config = vscode.workspace.getConfiguration("chattermatter");
@@ -76,17 +110,11 @@ export class ChatterMatterDecorationProvider {
     const suggestionRanges: vscode.DecorationOptions[] = [];
     const aiRanges: vscode.DecorationOptions[] = [];
 
-    for (const pb of blocks) {
-      const block = pb.block;
-
+    for (const block of blocks) {
       if (!showResolved && block.status === "resolved") continue;
       if (!block.anchor) continue;
 
-      const resolution = resolveAnchor(block.anchor, clean);
-      if (!resolution.resolved) continue;
-
-      // Map clean-text offset back to the original document offset.
-      // This is approximate — we find the anchor text in the original document.
+      // For sidecar blocks, we need to find the anchor in the clean text
       const anchorText = block.anchor.type === "text" ? block.anchor.exact : undefined;
       if (!anchorText) continue;
 

@@ -36,3 +36,4 @@ dist/
 # Temporary files
 *.tmp
 *.temp
+vscode-extension/.vscode-test/

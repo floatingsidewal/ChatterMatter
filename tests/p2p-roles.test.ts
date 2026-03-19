@@ -25,9 +25,14 @@ const SAMPLE_MARKDOWN = `\`\`\`chattermatter
 
 describe("Role enforcement", () => {
   describe("canWrite", () => {
-    it("returns true for master role", () => {
+    it("returns true for owner role", () => {
       const validator = new MasterValidator();
-      expect(validator.canWrite("master")).toBe(true);
+      expect(validator.canWrite("owner")).toBe(true);
+    });
+
+    it("returns true for moderator role", () => {
+      const validator = new MasterValidator();
+      expect(validator.canWrite("moderator")).toBe(true);
     });
 
     it("returns true for reviewer role", () => {
@@ -58,7 +63,7 @@ describe("Role enforcement", () => {
       doc.destroy();
     });
 
-    it("allows master to add blocks", () => {
+    it("allows owner to add blocks", () => {
       const doc = createDoc(SAMPLE_MARKDOWN);
       const validator = new MasterValidator();
 
@@ -69,7 +74,7 @@ describe("Role enforcement", () => {
         status: "open",
       };
 
-      const result = validator.validateAdd(doc, block, "peer1", "master");
+      const result = validator.validateAdd(doc, block, "peer1", "owner");
       expect(result.valid).toBe(true);
       doc.destroy();
     });
@@ -128,12 +133,31 @@ describe("Role enforcement", () => {
   });
 
   describe("validateDelete with roles", () => {
-    it("allows reviewer to delete blocks", () => {
+    it("allows owner to delete blocks", () => {
+      const doc = createDoc(SAMPLE_MARKDOWN);
+      const validator = new MasterValidator();
+
+      const result = validator.validateDelete(doc, "existing1", "peer1", "owner");
+      expect(result.valid).toBe(true);
+      doc.destroy();
+    });
+
+    it("allows moderator to delete blocks", () => {
+      const doc = createDoc(SAMPLE_MARKDOWN);
+      const validator = new MasterValidator();
+
+      const result = validator.validateDelete(doc, "existing1", "peer1", "moderator");
+      expect(result.valid).toBe(true);
+      doc.destroy();
+    });
+
+    it("rejects reviewer deleting blocks", () => {
       const doc = createDoc(SAMPLE_MARKDOWN);
       const validator = new MasterValidator();
 
       const result = validator.validateDelete(doc, "existing1", "peer1", "reviewer");
-      expect(result.valid).toBe(true);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain("Only owners and moderators");
       doc.destroy();
     });
 
@@ -143,7 +167,7 @@ describe("Role enforcement", () => {
 
       const result = validator.validateDelete(doc, "existing1", "peer1", "viewer");
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain("Viewers cannot delete");
+      expect(result.reason).toContain("Only owners and moderators");
       doc.destroy();
     });
   });

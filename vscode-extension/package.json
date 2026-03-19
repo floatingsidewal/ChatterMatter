@@ -23,7 +23,13 @@
       },
       {
         "command": "chattermatter.resolveComment",
-        "title": "ChatterMatter: Resolve Comment"
+        "title": "ChatterMatter: Resolve Comment",
+        "icon": "$(check)"
+      },
+      {
+        "command": "chattermatter.deleteComment",
+        "title": "ChatterMatter: Delete Comment",
+        "icon": "$(trash)"
       },
       {
         "command": "chattermatter.listComments",
@@ -39,31 +45,104 @@
       },
       {
         "command": "chattermatter.hostSession",
-        "title": "ChatterMatter: Host Review Session"
+        "title": "ChatterMatter: Host Review Session",
+        "icon": "$(broadcast)"
       },
       {
         "command": "chattermatter.joinSession",
-        "title": "ChatterMatter: Join Review Session"
+        "title": "ChatterMatter: Join Review Session",
+        "icon": "$(plug)"
       },
       {
         "command": "chattermatter.leaveSession",
-        "title": "ChatterMatter: Leave Session"
+        "title": "ChatterMatter: Leave Session",
+        "icon": "$(close)"
       },
       {
         "command": "chattermatter.showPeers",
         "title": "ChatterMatter: Show Peers"
       },
       {
+        "command": "chattermatter.deleteResolvedComments",
+        "title": "ChatterMatter: Delete All Resolved Comments",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "chattermatter.openReviewPanel",
+        "title": "ChatterMatter: Open Review Panel",
+        "icon": "$(preview)"
+      },
+      {
         "command": "chattermatter.showSessionMenu",
         "title": "ChatterMatter: Session Menu"
+      },
+      {
+        "command": "chattermatter.copyInviteLink",
+        "title": "ChatterMatter: Copy Invite Link",
+        "icon": "$(link)"
+      },
+      {
+        "command": "chattermatter.manageInvites",
+        "title": "ChatterMatter: Manage Invite Links"
+      },
+      {
+        "command": "chattermatter.resumeSession",
+        "title": "ChatterMatter: Resume Previous Session",
+        "icon": "$(history)"
+      },
+      {
+        "command": "chattermatter.submitComment",
+        "title": "Save Comment",
+        "icon": "$(check)"
+      },
+      {
+        "command": "chattermatter.replyToThread",
+        "title": "Reply",
+        "icon": "$(reply)"
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "chattermatter.hostSession",
+          "when": "editorLangId == markdown && !chattermatter.isConnected",
+          "group": "navigation"
+        },
+        {
+          "command": "chattermatter.openReviewPanel",
+          "when": "editorLangId == markdown && chattermatter.isConnected",
+          "group": "navigation"
+        },
+        {
+          "command": "chattermatter.leaveSession",
+          "when": "editorLangId == markdown && chattermatter.isConnected",
+          "group": "navigation"
+        }
+      ],
       "editor/context": [
         {
           "command": "chattermatter.addComment",
           "when": "editorLangId == markdown && editorHasSelection",
           "group": "chattermatter"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "chattermatter.submitComment",
+          "group": "inline",
+          "when": "commentController == chattermatter"
+        }
+      ],
+      "comments/comment/title": [
+        {
+          "command": "chattermatter.resolveComment",
+          "group": "navigation",
+          "when": "commentController == chattermatter"
+        },
+        {
+          "command": "chattermatter.deleteComment",
+          "group": "navigation",
+          "when": "commentController == chattermatter"
         }
       ]
     },
@@ -103,6 +182,11 @@
           "type": "string",
           "default": "",
           "description": "Your display name for P2P review sessions"
+        },
+        "chattermatter.p2p.hostAddress": {
+          "type": "string",
+          "default": "",
+          "description": "Host address for invite URLs (e.g., your VPN IP). Leave empty for auto-detection."
         }
       }
     }
@@ -124,6 +208,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
-    "chattermatter": "file:.."
+    "chattermatter": "file:..",
+    "marked": "^17.0.3"
   }
 }

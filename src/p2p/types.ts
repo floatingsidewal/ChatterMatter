@@ -38,7 +38,7 @@ export interface SessionInfo {
 // Peers
 // ---------------------------------------------------------------------------
 
-export type PeerRole = "master" | "reviewer" | "viewer";
+export type PeerRole = "owner" | "moderator" | "reviewer" | "viewer";
 
 export interface PeerInfo {
   peerId: string;
@@ -56,8 +56,9 @@ export type Message =
   | { type: "awareness"; data: Uint8Array }
   | { type: "reject"; blockId: string; reason: string }
   | { type: "session"; action: "join" | "leave" | "end"; peerId: string; name?: string }
-  | { type: "auth"; peerId: string; name: string; role?: "reviewer" | "viewer" }
+  | { type: "auth"; peerId: string; name: string; role?: "reviewer" | "viewer"; token?: string }
   | { type: "auth_ok"; peerId: string; sessionInfo: SessionInfo }
+  | { type: "auth_rejected"; reason: string }
   | { type: "role_change"; peerId: string; newRole: PeerRole; changedBy: string }
   | { type: "doc_request" }
   | { type: "doc_content"; markdown: string; path: string }
@@ -82,8 +83,10 @@ export type SessionEvent =
   | { type: "peer_left"; peerId: string }
   | { type: "block_added"; blockId: string; peerId: string }
   | { type: "block_updated"; blockId: string; peerId: string }
+  | { type: "block_deleted"; blockId: string; peerId: string }
   | { type: "block_rejected"; blockId: string; peerId: string; reason: string }
   | { type: "role_changed"; peerId: string; oldRole: PeerRole; newRole: PeerRole }
+  | { type: "document_updated" }
   | { type: "session_ended" }
   | { type: "error"; message: string };
 

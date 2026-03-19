@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync
 import { join, dirname } from "node:path";
 import * as Y from "yjs";
 import type { PeerInfo, PeerRole } from "./types.js";
+import type { InviteToken } from "./tokens.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,6 +42,7 @@ export interface StoredSession {
   meta: SessionMeta;
   state: Uint8Array;
   peers: StoredPeer[];
+  tokens: InviteToken[];
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +90,7 @@ export class SessionStorage {
     doc: Y.Doc,
     meta: Omit<SessionMeta, "updatedAt">,
     peers: PeerInfo[],
+    tokens: InviteToken[] = [],
   ): void {
     const dir = this.ensureDir(sessionId);
 
@@ -110,6 +113,33 @@ export class SessionStorage {
       connectedAt: p.connectedAt,
     }));
     writeFileSync(join(dir, "peers.json"), JSON.stringify(storedPeers, null, 2), "utf-8");
+
+    // Save tokens
+    writeFileSync(join(dir, "tokens.json"), JSON.stringify(tokens, null, 2), "utf-8");
+  }
+
+  /**
+   * Save only tokens to disk (for incremental updates).
+   */
+  saveTokens(sessionId: string, tokens: InviteToken[]): void {
+    const dir = this.ensureDir(sessionId);
+    writeFileSync(join(dir, "tokens.json"), JSON.stringify(tokens, null, 2), "utf-8");
+  }
+
+  /**
+   * Load tokens from disk.
+   * Returns empty array if no tokens exist.
+   */
+  loadTokens(sessionId: string): InviteToken[] {
+    const tokensPath = join(this.sessionDir(sessionId), "tokens.json");
+    if (!existsSync(tokensPath)) {
+      return [];
+    }
+    try {
+      return JSON.parse(readFileSync(tokensPath, "utf-8"));
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -135,8 +165,12 @@ export class SessionStorage {
       const peers: StoredPeer[] = existsSync(peersPath)
         ? JSON.parse(readFileSync(peersPath, "utf-8"))
         : [];
+      const tokensPath = join(dir, "tokens.json");
+      const tokens: InviteToken[] = existsSync(tokensPath)
+        ? JSON.parse(readFileSync(tokensPath, "utf-8"))
+        : [];
 
-      return { meta, state, peers };
+      return { meta, state, peers, tokens };
     } catch {
       return null;
     }

@@ -346,4 +346,97 @@ describe("session events", () => {
 
     expect(events.some((e) => e.type === "session_ended")).toBe(true);
   });
+
+  it("master emits block_deleted when block is deleted", async () => {
+    const existingBlocks = `\`\`\`chattermatter
+{
+  "id": "to-delete",
+  "type": "comment",
+  "content": "This will be deleted",
+  "status": "open"
+}
+\`\`\`
+`;
+    const { docPath, port } = setup(existingBlocks);
+    master = new MasterSession({
+      sessionId: "test-session",
+      masterName: "alice",
+      documentPath: docPath,
+      port,
+      sidecar: true,
+    });
+
+    const events: SessionEvent[] = [];
+    master.onEvent((e) => events.push(e));
+
+    await master.start();
+    expect(master.getBlocks()).toHaveLength(1);
+
+    // Delete the block
+    const success = master.deleteBlock("to-delete");
+    expect(success).toBe(true);
+
+    // Wait for event to propagate
+    await wait(50);
+
+    // Verify block is gone
+    expect(master.getBlocks()).toHaveLength(0);
+
+    // Verify block_deleted event was emitted
+    const deleteEvent = events.find((e) => e.type === "block_deleted");
+    expect(deleteEvent).toBeDefined();
+    if (deleteEvent?.type === "block_deleted") {
+      expect(deleteEvent.blockId).toBe("to-delete");
+    }
+  });
+
+  it("client receives block_deleted when master deletes", async () => {
+    const existingBlocks = `\`\`\`chattermatter
+{
+  "id": "master-delete",
+  "type": "comment",
+  "content": "Master will delete this",
+  "status": "open"
+}
+\`\`\`
+`;
+    const { docPath, port } = setup(existingBlocks);
+    master = new MasterSession({
+      sessionId: "test-session",
+      masterName: "alice",
+      documentPath: docPath,
+      port,
+      sidecar: true,
+    });
+    await master.start();
+
+    const client = new ClientSession({
+      url: `ws://localhost:${port}`,
+      peerId: randomUUID(),
+      name: "bob",
+    });
+    clients.push(client);
+
+    const clientEvents: SessionEvent[] = [];
+    client.onEvent((e) => clientEvents.push(e));
+
+    await client.connect();
+    await wait(100);
+
+    // Verify client has the block
+    expect(client.getBlocks()).toHaveLength(1);
+
+    // Master deletes the block
+    master.deleteBlock("master-delete");
+
+    // Wait for sync
+    await wait(200);
+
+    // Verify client block is gone
+    expect(client.getBlocks()).toHaveLength(0);
+
+    // Verify client received block_deleted event
+    const deleteEvent = clientEvents.find((e) => e.type === "block_deleted");
+    expect(deleteEvent).toBeDefined();
+  });
 });

@@ -31,6 +31,8 @@ export {
   getBlock,
   setBlock,
   deleteBlock,
+  deleteBlockWithChildren,
+  deleteResolvedBlocks,
   materialize,
   observeBlocks,
 } from "./sync.js";
@@ -49,3 +51,17 @@ export { encodeMessage, decodeMessage } from "./protocol.js";
 // Storage
 export { SessionStorage } from "./storage.js";
 export type { SessionMeta, StoredPeer, StoredSession } from "./storage.js";
+
+// Tokens
+export {
+  generateInviteToken,
+  createInviteToken,
+  validateToken,
+  extractTokenFromUrl,
+  buildInviteUrl,
+} from "./tokens.js";
+export type {
+  InviteToken,
+  TokenValidationResult,
+  CreateTokenOptions,
+} from "./tokens.js";

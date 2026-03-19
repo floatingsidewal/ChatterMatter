@@ -10,6 +10,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import * as os from "node:os";
 import { WebSocketServer, WebSocket } from "ws";
 import * as Y from "yjs";
 import {
@@ -22,11 +23,18 @@ import * as awarenessProtocol from "y-protocols/awareness.js";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { ulid } from "ulid";
-import { createDoc, createEmptyDoc, getBlocksMap, getBlocks, materialize, observeBlocks } from "./sync.js";
+import { createDoc, createEmptyDoc, getBlocksMap, getBlocks, materialize, observeBlocks, deleteBlockWithChildren, deleteResolvedBlocks as syncDeleteResolvedBlocks } from "./sync.js";
 import { MasterValidator } from "./validation.js";
 import { PresenceManager } from "./presence.js";
 import { encodeMessage, decodeMessage } from "./protocol.js";
 import { SessionStorage } from "./storage.js";
+import {
+  createInviteToken,
+  validateToken,
+  buildInviteUrl,
+  type InviteToken,
+  type CreateTokenOptions,
+} from "./tokens.js";
 import type {
   SessionConfig,
   SessionInfo,
@@ -55,6 +63,23 @@ interface DocumentContent {
 
 const DEFAULT_AUTO_SAVE_INTERVAL = 30_000; // 30 seconds
 
+/**
+ * Get the local network IP address (first non-internal IPv4 address).
+ * Returns null if no suitable address is found.
+ */
+function getLocalIpAddress(): string | null {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] || []) {
+      // Skip internal (loopback) and non-IPv4 addresses
+      if (iface.family === "IPv4" && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return null;
+}
+
 export class MasterSession {
   readonly sessionId: string;
   readonly doc: Y.Doc;
@@ -72,6 +97,9 @@ export class MasterSession {
   private autoSaveTimer: ReturnType<typeof setInterval> | null = null;
   private autoSaveInterval: number;
   private documentContent: DocumentContent | null = null;
+  private pendingSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private tokens = new Map<string, InviteToken>();
+  private port: number;
 
   constructor(private config: SessionConfig) {
     this.sessionId = config.sessionId || ulid();
@@ -79,6 +107,7 @@ export class MasterSession {
     this.sidecar = config.sidecar ?? true;
     this.createdAt = new Date().toISOString();
     this.autoSaveInterval = config.autoSaveInterval ?? DEFAULT_AUTO_SAVE_INTERVAL;
+    this.port = config.port;
 
     // Initialize storage
     this.storage = new SessionStorage(config.documentPath);
@@ -94,6 +123,14 @@ export class MasterSession {
 
     // Load the markdown document content for sharing with peers
     this.loadDocumentContent();
+
+    // Load tokens if resuming
+    if (config.initialState) {
+      const storedTokens = this.storage.loadTokens(this.sessionId);
+      for (const token of storedTokens) {
+        this.tokens.set(token.token, token);
+      }
+    }
 
     this.validator = new MasterValidator();
     this.presence = new PresenceManager(this.doc, config.masterName);
@@ -119,6 +156,22 @@ export class MasterSession {
     return this.documentContent;
   }
 
+  /**
+   * Update the document content and broadcast to all peers.
+   * Called when the host edits the markdown file.
+   */
+  updateDocumentContent(markdown: string): void {
+    if (this.documentContent) {
+      this.documentContent.markdown = markdown;
+      // Broadcast updated content to all peers
+      this.broadcast({
+        type: "doc_content",
+        markdown: this.documentContent.markdown,
+        path: this.documentContent.path,
+      });
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
@@ -142,11 +195,17 @@ export class MasterSession {
 
       // Observe block changes for materialization
       this.cleanupObserver = observeBlocks(this.doc, (changes, origin) => {
+        // Debounced save to reduce I/O (50ms delay)
+        this.debouncedSave();
+
+        // Emit events immediately so UI updates quickly
         for (const change of changes) {
           if (change.action === "add") {
             this.emit({ type: "block_added", blockId: change.blockId, peerId: "master" });
           } else if (change.action === "update") {
             this.emit({ type: "block_updated", blockId: change.blockId, peerId: "master" });
+          } else if (change.action === "delete") {
+            this.emit({ type: "block_deleted", blockId: change.blockId, peerId: "master" });
           }
         }
       });
@@ -168,6 +227,12 @@ export class MasterSession {
     if (this.autoSaveTimer) {
       clearInterval(this.autoSaveTimer);
       this.autoSaveTimer = null;
+    }
+
+    // Flush any pending debounced save
+    if (this.pendingSaveTimer) {
+      clearTimeout(this.pendingSaveTimer);
+      this.pendingSaveTimer = null;
     }
 
     // Notify all peers
@@ -227,6 +292,81 @@ export class MasterSession {
   }
 
   /**
+   * Add a block to the CRDT (for local additions that should sync to peers).
+   */
+  addBlock(block: Block): void {
+    // Capture state before
+    const beforeState = Y.encodeStateVector(this.doc);
+
+    const blocksMap = getBlocksMap(this.doc);
+    blocksMap.set(block.id, block as unknown as Record<string, unknown>);
+
+    // Get the update and broadcast to all peers
+    const update = Y.encodeStateAsUpdate(this.doc, beforeState);
+    this.broadcastSync(update);
+  }
+
+  /**
+   * Update a block in the CRDT.
+   */
+  updateBlock(block: Block): void {
+    this.addBlock(block);
+  }
+
+  /**
+   * Delete a block and all its children from the CRDT.
+   */
+  deleteBlock(blockId: string): boolean {
+    const blocksMap = getBlocksMap(this.doc);
+    if (!blocksMap.has(blockId)) {
+      return false;
+    }
+
+    // Capture state before
+    const beforeState = Y.encodeStateVector(this.doc);
+
+    // Delete the block and all its children
+    const deleted = deleteBlockWithChildren(this.doc, blockId);
+
+    if (deleted.length === 0) {
+      return false;
+    }
+
+    // Get the update and broadcast to all peers
+    const update = Y.encodeStateAsUpdate(this.doc, beforeState);
+    this.broadcastSync(update);
+
+    return true;
+  }
+
+  /**
+   * Delete all resolved threads (and their children) from the CRDT.
+   * Returns the number of blocks deleted.
+   */
+  deleteResolvedBlocks(): number {
+    // Capture state before
+    const beforeState = Y.encodeStateVector(this.doc);
+
+    const deleted = syncDeleteResolvedBlocks(this.doc);
+
+    if (deleted.length > 0) {
+      // Get the update and broadcast to all peers
+      const update = Y.encodeStateAsUpdate(this.doc, beforeState);
+      this.broadcastSync(update);
+    }
+
+    return deleted.length;
+  }
+
+  /**
+   * Broadcast a sync update to all connected peers.
+   */
+  private broadcastSync(update: Uint8Array): void {
+    const msg: Message = { type: "sync", data: update };
+    this.broadcast(msg);
+  }
+
+  /**
    * Find a peer by display name.
    */
   findPeerByName(name: string): PeerInfo | undefined {
@@ -239,7 +379,7 @@ export class MasterSession {
   }
 
   /**
-   * Change a peer's role. Only masters can change roles.
+   * Change a peer's role. Only owners can change roles.
    * Returns true if the role was changed, false if peer not found.
    */
   changePeerRole(peerId: string, newRole: PeerRole): boolean {
@@ -265,6 +405,97 @@ export class MasterSession {
     this.emit({ type: "role_changed", peerId, oldRole, newRole });
 
     return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Token Management
+  // -------------------------------------------------------------------------
+
+  /**
+   * Check if the session requires tokens for authentication.
+   * Returns true if any tokens have been created.
+   */
+  requiresToken(): boolean {
+    return this.tokens.size > 0;
+  }
+
+  /**
+   * Create a new invite token.
+   * Returns the created token.
+   */
+  createToken(options?: CreateTokenOptions): InviteToken {
+    const token = createInviteToken(options);
+    this.tokens.set(token.token, token);
+    this.saveTokens();
+    return token;
+  }
+
+  /**
+   * Get all tokens (for management UI).
+   */
+  getTokens(): InviteToken[] {
+    return Array.from(this.tokens.values());
+  }
+
+  /**
+   * Get a specific token by its string value.
+   */
+  getToken(tokenStr: string): InviteToken | undefined {
+    return this.tokens.get(tokenStr);
+  }
+
+  /**
+   * Revoke a token by its string value.
+   * Returns true if the token was found and revoked.
+   */
+  revokeToken(tokenStr: string): boolean {
+    const token = this.tokens.get(tokenStr);
+    if (!token) return false;
+
+    token.revokedAt = new Date().toISOString();
+    this.saveTokens();
+    return true;
+  }
+
+  /**
+   * Delete a token entirely.
+   * Returns true if the token was found and deleted.
+   */
+  deleteToken(tokenStr: string): boolean {
+    const deleted = this.tokens.delete(tokenStr);
+    if (deleted) {
+      this.saveTokens();
+    }
+    return deleted;
+  }
+
+  /**
+   * Increment the use count for a token.
+   * Called after successful authentication.
+   */
+  private incrementTokenUse(tokenStr: string): void {
+    const token = this.tokens.get(tokenStr);
+    if (token) {
+      token.useCount++;
+      this.saveTokens();
+    }
+  }
+
+  /**
+   * Get an invite URL for a specific token.
+   * Uses the local network IP address for better connectivity.
+   */
+  getInviteUrl(tokenStr: string): string {
+    const host = getLocalIpAddress() || os.hostname();
+    const baseUrl = `ws://${host}:${this.port}`;
+    return buildInviteUrl(baseUrl, tokenStr);
+  }
+
+  /**
+   * Save tokens to disk.
+   */
+  private saveTokens(): void {
+    this.storage.saveTokens(this.sessionId, Array.from(this.tokens.values()));
   }
 
   // -------------------------------------------------------------------------
@@ -295,6 +526,19 @@ export class MasterSession {
   }
 
   /**
+   * Debounced save to reduce I/O overhead during rapid changes.
+   */
+  private debouncedSave(): void {
+    if (this.pendingSaveTimer) {
+      clearTimeout(this.pendingSaveTimer);
+    }
+    this.pendingSaveTimer = setTimeout(() => {
+      this.save();
+      this.pendingSaveTimer = null;
+    }, 50);
+  }
+
+  /**
    * Save session state for potential resume.
    */
   saveSession(): void {
@@ -310,6 +554,7 @@ export class MasterSession {
         sidecar: this.sidecar,
       },
       this.getPeers(),
+      Array.from(this.tokens.values()),
     );
   }
 
@@ -339,6 +584,10 @@ export class MasterSession {
         switch (msg.type) {
           case "auth":
             peerId = this.handleAuth(ws, msg);
+            if (peerId === null) {
+              // Auth rejected, connection will be closed
+              return;
+            }
             break;
           case "sync":
             if (peerId) this.handleSync(ws, peerId, msg.data);
@@ -371,12 +620,48 @@ export class MasterSession {
     });
   }
 
-  private handleAuth(ws: WebSocket, msg: Message & { type: "auth" }): string {
+  private handleAuth(ws: WebSocket, msg: Message & { type: "auth" }): string | null {
+    // Validate token if session requires it
+    if (this.requiresToken()) {
+      if (!msg.token) {
+        this.send(ws, { type: "auth_rejected", reason: "This session requires an invite link" });
+        ws.close(4003, "Token required");
+        return null;
+      }
+
+      const token = this.tokens.get(msg.token);
+      if (!token) {
+        this.send(ws, { type: "auth_rejected", reason: "Invite link not recognized" });
+        ws.close(4003, "Invalid token");
+        return null;
+      }
+
+      const validation = validateToken(token);
+      if (!validation.valid) {
+        this.send(ws, { type: "auth_rejected", reason: validation.reason! });
+        ws.close(4003, validation.reason);
+        return null;
+      }
+
+      // Token is valid - increment use count
+      this.incrementTokenUse(msg.token);
+    }
+
     const peerId = msg.peerId;
+
+    // Determine role: use token's default role if available, otherwise use requested role
+    let role: PeerRole = msg.role ?? "reviewer";
+    if (msg.token) {
+      const token = this.tokens.get(msg.token);
+      if (token) {
+        role = token.defaultRole;
+      }
+    }
+
     const peerInfo: PeerInfo = {
       peerId,
       name: msg.name,
-      role: msg.role ?? "reviewer",
+      role,
       connectedAt: new Date().toISOString(),
     };
 
